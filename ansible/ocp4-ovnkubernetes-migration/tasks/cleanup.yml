@@ -1,0 +1,58 @@
+---
+# tasks file for ocp4-ovn-migrate
+- block:
+  - name: Check nodes are ready
+    command: "oc get nodes"
+    register: command_result
+    until: "'NotReady' not in command_result.stdout"
+    retries: 10
+    delay: 60
+    tags: check_sdn_configured
+
+  - name: Check machineconfig are applied
+    include_tasks: _check_node_machineconfig.yml
+    loop: "{{ ocp_nodes_names }}"
+    tags: mc_validation
+  #
+  # Validation
+  #
+  - name: Check OVN is the current network configured
+    command: "oc get network.config/cluster -o jsonpath='{.status.networkType}{\"\\n\"}'"
+    register: command_result
+    failed_when: "'OpenShiftSDN' not in command_result.stdout"
+    tags: check_sdn_configured
+
+  - name: Check nodes are ready
+    command: "oc get nodes"
+    register: command_result
+    failed_when: "'NotReady' in command_result.stdout"
+    tags: check_sdn_configured
+
+  #
+  # Cleanup
+  #
+  - name: Paused MachineConfigurationPool
+    command: "oc patch MachineConfigPool {{ item }} --type='merge' --patch '{ \"spec\": { \"paused\": false } }'"
+    loop:
+    - master
+    - worker
+
+  - name: Cleanup network operator annotation
+    command: "oc annotate Network.operator.openshift.io cluster networkoperator.openshift.io/network-migration-"
+  
+  - name: Delete openshift-sdn namespace
+    command: "oc delete namespace openshift-sdn"
+    when: false
+
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+#  - name: Apply k8s resources to deploy pao operator
+#    k8s:
+#      kubeconfig: "{{ kubeconfig }}"
+#      validate_certs: "{{ k8s_validate_certs }}"
+#      state: present
+#      definition: "{{ lookup('template', role_path + '/templates/' + item) }}"
+#    with_items:
+#    - namespace.yaml.j2
+#    - operatorgroup.yaml.j2
+#    - subscription.yaml.j2

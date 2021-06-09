@@ -1,0 +1,18 @@
+- name: Get nodes current machineconfig
+  command: "oc get node {{ item }} -o jsonpath='{.metadata.annotations.machineconfiguration\\.openshift\\.io/currentConfig}'"
+  register: current_mc_out
+
+- name: Get nodes desired machineconfig
+  command: "oc get node {{ item }} -o jsonpath='{.metadata.annotations.machineconfiguration\\.openshift\\.io/desiredConfig}'"
+  register: desired_mc_out
+
+- name: Extract mc values
+  set_fact:
+    current_mc: "{{ current_mc_out.stdout }}"
+    desired_mc: "{{ desired_mc_out.stdout }}"
+
+- debug: msg="{{ current_mc }} - {{ desired_mc }}"
+
+- fail:
+    msg: "Current config {{ current_mc }} is not desired config {{ desired_mc }}"
+  when: current_mc != desired_mc

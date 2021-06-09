@@ -1,0 +1,16 @@
+---
+# tasks file for ocp4-pao-config
+- block:
+  - name: Migrate to OVNKubernetes
+    include: install.yml
+    tags: migrate
+
+#  - name: Configure and validate OVNKubernetes migration/etc/some_directory
+#    include: configure.yml
+#    tags: configure 
+
+  module_defaults:
+    group/k8s:
+      host: "https://api.{{ cluster_name }}.{{ public_domain }}:6443"
+      validate_certs: "{{ k8s_validate_certs }}"
+

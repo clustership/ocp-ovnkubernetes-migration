@@ -1,0 +1,115 @@
+---
+# tasks file for ocp4-ovn-migrate
+- block:
+  - name: Create backup config directory
+    ansible.builtin.file:
+      path: "{{ role_path }}/../backup"
+      state: directory
+      mode: '0755'
+
+  - name: Backup current sdn network configuration
+    shell: "oc get Network.config.openshift.io cluster -o yaml > {{ role_path }}/../backup/cluster-openshift-sdn-{{ansible_date_time.iso8601_basic_short}}.yaml"
+
+  - name: Annotate network operator to start migration
+    command: "oc --kubeconfig={{ kubeconfig }} annotate Network.operator.openshift.io cluster 'networkoperator.openshift.io/network-migration'='' --overwrite=true"
+
+  - name: Paused MachineConfigurationPool
+    command: "oc patch MachineConfigPool {{ item }} --type='merge' --patch '{ \"spec\": { \"paused\": true } }'"
+    loop:
+    - master
+    - worker
+
+  - name: Patch Network config for OVNKubernetes
+    command: "oc patch Network.config.openshift.io cluster --type='merge' --patch '{ \"spec\": { \"networkType\": \"OVNKubernetes\" } }'"
+
+  - name: Restart multus
+    command: "oc -n openshift-multus rollout status daemonset/multus"
+    register: multus_restart_rc
+
+  - fail:
+      msg: "Multus rollout not done"
+    when: "'successfully rolled out' not in multus_restart_rc.stdout"
+
+  - block:
+    - name: Get nodes ips
+      command: "oc get nodes  -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
+      register: ocp_nodes_out
+
+    - name: Get nodes names
+      command: "oc get nodes  -o jsonpath='{.items[*].metadata.name}'"
+      register: ocp_nodes_names_out
+
+    - name: Debug nodes results
+      debug:
+        msg: "{{ ocp_nodes_out }}"
+
+    - name: set nodes as fact
+      set_fact:
+        ocp_nodes_ips: "{{ ocp_nodes_out.stdout.split(' ') }}"
+        ocp_nodes_names: "{{ ocp_nodes_names_out.stdout.split(' ') }}"
+    when: ocp_nodes_ips is not defined
+
+  - name: Reboot nodes to apply new network configuration
+    command: "ssh -o StrictHostKeyChecking=no core@{{ item }} sudo shutdown -r -t 3"
+    loop: "{{ ocp_nodes_ips }}"
+
+  - name: Pause for 2.5 minutes to wait for servers to reboot
+    pause:
+      seconds: 180
+
+  - name: Check nodes are ready
+    command: "oc get nodes"
+    register: command_result
+    until: "'NotReady' not in command_result.stdout"
+    retries: 10
+    delay: 30
+    ignore_errors: yes
+    tags: check_sdn_configured
+
+  - name: Check machineconfig are applied
+    include_tasks: _check_node_machineconfig.yml
+    loop: "{{ ocp_nodes_names }}"
+    tags: mc_validation
+  #
+  # Validation
+  #
+  - name: Check OVN is the current network configured
+    command: "oc get network.config/cluster -o jsonpath='{.status.networkType}{\"\\n\"}'"
+    register: command_result
+    failed_when: "'OpenShiftSDN' not in command_result.stdout"
+    tags: check_sdn_configured
+
+  - name: Check nodes are ready
+    command: "oc get nodes"
+    register: command_result
+    failed_when: "'NotReady' in command_result.stdout"
+    tags: check_sdn_configured
+
+  #
+  # Cleanup
+  #
+  - name: Paused MachineConfigurationPool
+    command: "oc patch MachineConfigPool {{ item }} --type='merge' --patch '{ \"spec\": { \"paused\": false } }'"
+    loop:
+    - master
+    - worker
+
+  - name: Cleanup network operator annotation
+    command: "oc annotate Network.operator.openshift.io cluster networkoperator.openshift.io/network-migration-"
+  
+  - name: Delete openshift-sdn namespace
+    command: "oc delete namespace openshift-sdn"
+    when: false
+
+  environment:
+    KUBECONFIG: "{{ kubeconfig }}"
+#  - name: Apply k8s resources to deploy pao operator
+#    k8s:
+#      kubeconfig: "{{ kubeconfig }}"
+#      validate_certs: "{{ k8s_validate_certs }}"
+#      state: present
+#      definition: "{{ lookup('template', role_path + '/templates/' + item) }}"
+#    with_items:
+#    - namespace.yaml.j2
+#    - operatorgroup.yaml.j2
+#    - subscription.yaml.j2
