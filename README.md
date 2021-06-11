@@ -45,4 +45,9 @@ Confirm that no pods are in error state:
 oc get pods --all-namespaces -o wide --sort-by='{.spec.nodeName}'
 ```
 
+# Tested on
+
+* OpenShift 4.7 and 4.8 on Bare Metal
+* OpenShift 4.8 on Red Hat OpenStack 16
+* OpenShift 4.8 on AWS
 
