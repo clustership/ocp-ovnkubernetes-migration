@@ -41,7 +41,7 @@
 
     - name: Debug nodes results
       debug:
-        msg: "{{ ocp_nodes_out }}"
+        msg: "{{ ocp_nodes_out }}"
 
     - name: set nodes as fact
       set_fact:
@@ -50,12 +50,21 @@
     when: ocp_nodes_ips is not defined
 
   - name: Reboot nodes to apply new network configuration
-    command: "ssh -o StrictHostKeyChecking=no core@{{ item }} sudo shutdown -r -t 3"
-    loop: "{{ ocp_nodes_ips }}"
+    # command: "ssh -o StrictHostKeyChecking=no core@{{ item }} sudo shutdown -r -t 3"
+    # loop: "{{ ocp_nodes_ips }}"
+    command: "oc debug node/{{ item }} -- chroot /host shutdown -r -t 3"
+    loop: "{{ ocp_nodes_names }}"
 
-  - name: Pause for 2.5 minutes to wait for servers to reboot
+  - name: Pause for 5 minutes to wait for servers to reboot
     pause:
       seconds: 180
+
+  - name: Wait for nodes to be ready
+    command: "oc get nodes"
+    register: command_result
+    until: "'Ready ' in command_result.stdout"
+    retries: 20
+    delay: 30
 
   - name: Check nodes are ready
     command: "oc get nodes"

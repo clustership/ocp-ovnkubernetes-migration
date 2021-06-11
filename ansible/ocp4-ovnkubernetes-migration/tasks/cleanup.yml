@@ -1,6 +1,23 @@
 ---
 # tasks file for ocp4-ovn-migrate
 - block:
+  - name: Get nodes ips
+    command: "oc get nodes  -o jsonpath='{.items[*].status.addresses[?(@.type==\"InternalIP\")].address}'"
+    register: ocp_nodes_out
+
+  - name: Get nodes names
+    command: "oc get nodes  -o jsonpath='{.items[*].metadata.name}'"
+    register: ocp_nodes_names_out
+
+  - name: Debug nodes results
+    debug:
+      msg: "{{ ocp_nodes_out }}"
+
+  - name: set nodes as fact
+    set_fact:
+      ocp_nodes_ips: "{{ ocp_nodes_out.stdout.split(' ') }}"
+      ocp_nodes_names: "{{ ocp_nodes_names_out.stdout.split(' ') }}"
+
   - name: Check nodes are ready
     command: "oc get nodes"
     register: command_result
@@ -45,7 +62,7 @@
     when: false
 
   environment:
-    KUBECONFIG: "{{ kubeconfig }}"
+    KUBECONFIG: "{{ kubeconfig }}"
 #  - name: Apply k8s resources to deploy pao operator
 #    k8s:
 #      kubeconfig: "{{ kubeconfig }}"
