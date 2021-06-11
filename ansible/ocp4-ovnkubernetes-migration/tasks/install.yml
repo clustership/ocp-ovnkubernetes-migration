@@ -108,7 +108,6 @@
   
   - name: Delete openshift-sdn namespace
     command: "oc delete namespace openshift-sdn"
-    when: false
 
   environment:
     KUBECONFIG: "{{ kubeconfig }}"
